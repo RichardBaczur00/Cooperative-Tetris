@@ -1,5 +1,6 @@
 import pygame
 import random
+import json
 
 colors = [
     (0, 0, 0),
@@ -10,6 +11,16 @@ colors = [
     (180, 34, 22),
     (180, 34, 122),
 ]
+
+HOST = 'localhost'
+PORT = 3386
+
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+GRAY = (125, 125, 125)
+
+server = None
+your_turn = False
 
 
 class Figure:
@@ -51,6 +62,7 @@ class Tetris:
     y = 60
     zoom = 20
     figure = None
+    server = None
 
     def __init__(self, height, width):
         self.height = height
@@ -111,9 +123,15 @@ class Tetris:
                 if i * 4 + j in self.figure.image():
                     self.field[i + self.figure.y][j + self.figure.x] = self.figure.color
         self.break_lines()
-        self.new_figure()
-        if self.intersects():
-            self.state = "gameover"
+        global your_turn
+        your_turn = False
+        payload = {
+            'field': self.field,
+            'message': "Figure of color {} in position ({}, {})".format(self.figure.color, self.figure.x, self.figure.y)
+        }
+        print(payload)
+        self.server.sendall(json.dumps(payload).encode('utf-8'))
+        self.figure = None
 
     def go_side(self, dx):
         old_x = self.figure.x
@@ -127,28 +145,101 @@ class Tetris:
         if self.intersects():
             self.figure.rotation = old_rotation
 
-def game_loop():
+
+def draw_screen(game, screen, clock, fps):
+    screen.fill(WHITE)
+
+    for i in range(game.height):
+        for j in range(game.width):
+            pygame.draw.rect(screen, GRAY, [game.x + game.zoom * j, game.y + game.zoom * i, game.zoom, game.zoom],
+                             1)
+            if game.field[i][j] > 0:
+                pygame.draw.rect(screen, colors[game.field[i][j]],
+                                 [game.x + game.zoom * j + 1, game.y + game.zoom * i + 1, game.zoom - 2,
+                                  game.zoom - 1])
+
+    if game.figure is not None:
+        for i in range(4):
+            for j in range(4):
+                p = i * 4 + j
+                if p in game.figure.image():
+                    pygame.draw.rect(screen, colors[game.figure.color],
+                                     [game.x + game.zoom * (j + game.figure.x) + 1,
+                                      game.y + game.zoom * (i + game.figure.y) + 1,
+                                      game.zoom - 2, game.zoom - 2])
+
+    font = pygame.font.SysFont('Calibri', 25, True, False)
+    font1 = pygame.font.SysFont('Calibri', 65, True, False)
+    text = font.render("Score: " + str(game.score), True, BLACK)
+    text_game_over = font1.render("Game Over", True, (255, 125, 0))
+    text_game_over1 = font1.render("Press ESC", True, (255, 215, 0))
+
+    screen.blit(text, [0, 0])
+    if game.state == "gameover":
+        screen.blit(text_game_over, [20, 200])
+        screen.blit(text_game_over1, [25, 265])
+
+    pygame.display.flip()
+    clock.tick(fps)
+
+
+def game_loop(_server, is_starting):
     pygame.init()
 
-    BLACK = (0, 0, 0)
-    WHITE = (255, 255, 255)
-    GRAY = (125, 125, 125)
-
+    global your_turn
     size = (400, 500)
     screen = pygame.display.set_mode(size)
 
     pygame.display.set_caption("Coop-Tetris")
 
     done = False
+    your_turn = is_starting
     clock = pygame.time.Clock()
     fps = 25
     game = Tetris(20, 10)
     counter = 0
+    game.server = _server
 
     pressing_down = False
     while not done:
+        if not your_turn:
+            waiting_flag = False
+            while True:
+                try:
+                    draw_screen(game, screen, clock, fps)
+                    game.server.setblocking(False)
+                    teammate_move_raw = game.server.recv(2048)
+                except BlockingIOError:
+                    if not waiting_flag:
+                        print('Waiting for teammate to make a move')
+                        waiting_flag = True
+                    pass
+                except ConnectionAbortedError:
+                    game.server.close()
+                    game.server.connect((HOST, PORT))
+                else:
+                    teammate_move_decoded = json.loads(teammate_move_raw.decode('utf-8'))
+                    new_field = teammate_move_decoded['field']
+                    print(teammate_move_decoded['message'])
+                    if 'done' in teammate_move_decoded.keys():
+                        done = True
+                    game.field = new_field
+                    draw_screen(game, screen, clock, fps)
+                    your_turn = True
+                    break
+            continue
         if game.figure is None:
             game.new_figure()
+            if game.intersects():
+                game.state = "gameover"
+                payload = {
+                    'field': game.field,
+                    'done': True,
+                    'message': 'Game over! :('
+                }
+                game.server.sendall(json.dumps(payload).encode('utf-8'))
+                print('Game over! :(')
+                done = True
         counter += 1
         if counter > 10e6:
             counter = 0
@@ -176,40 +267,6 @@ def game_loop():
             if event.type == pygame.KEYUP:
                 if event.key == pygame.K_DOWN:
                     pressing_down = False
-
-        screen.fill(WHITE)
-
-        for i in range(game.height):
-            for j in range(game.width):
-                pygame.draw.rect(screen, GRAY, [game.x + game.zoom * j, game.y + game.zoom * i, game.zoom, game.zoom],
-                                 1)
-                if game.field[i][j] > 0:
-                    pygame.draw.rect(screen, colors[game.field[i][j]],
-                                     [game.x + game.zoom * j + 1, game.y + game.zoom * i + 1, game.zoom - 2,
-                                      game.zoom - 1])
-
-        if game.figure is not None:
-            for i in range(4):
-                for j in range(4):
-                    p = i * 4 + j
-                    if p in game.figure.image():
-                        pygame.draw.rect(screen, colors[game.figure.color],
-                                         [game.x + game.zoom * (j + game.figure.x) + 1,
-                                          game.y + game.zoom * (i + game.figure.y) + 1,
-                                          game.zoom - 2, game.zoom - 2])
-
-        font = pygame.font.SysFont('Calibri', 25, True, False)
-        font1 = pygame.font.SysFont('Calibri', 65, True, False)
-        text = font.render("Score: " + str(game.score), True, BLACK)
-        text_game_over = font1.render("Game Over", True, (255, 125, 0))
-        text_game_over1 = font1.render("Press ESC", True, (255, 215, 0))
-
-        screen.blit(text, [0, 0])
-        if game.state == "gameover":
-            screen.blit(text_game_over, [20, 200])
-            screen.blit(text_game_over1, [25, 265])
-
-        pygame.display.flip()
-        clock.tick(fps)
+        draw_screen(game, screen, clock, fps)
 
     pygame.quit()
