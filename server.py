@@ -2,7 +2,7 @@ import socket
 import json
 import threading
 
-HOST = 'localhost'
+HOST = '192.168.1.236'
 PORT = 3386
 
 connections = dict()  # connection dictionary | username: string => ('connection': socket, 'address': string)
@@ -19,14 +19,12 @@ def deal_with_matches():
                 source = connections[key]['connection']
                 destination = connections[matches[key]['other_player']]['connection']
                 data = source.recv(2048)
-                print(json.loads(data)['message'])
                 destination.sendall(data)  # forward move to other player
                 matches[key]['turn'] = 2
             else:
                 source = connections[matches[key]['other_player']]['connection']
                 destination = connections[key]['connection']
                 data = source.recv(2048)
-                print(data.decode("utf-8"))
                 destination.sendall(data)
                 matches[key]['turn'] = 1
 
@@ -71,7 +69,6 @@ def main():
 
         init_data = conn.recv(1024)
         init_data_decoded = json.loads(init_data.decode('utf-8'))
-        print(init_data_decoded)
         username = init_data_decoded['name']
         if username not in connections:
             connections[username] = {

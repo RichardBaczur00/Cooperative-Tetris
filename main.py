@@ -2,7 +2,14 @@ import socket
 import json
 import game_logic
 
-HOST = 'localhost'
+
+def get_address():
+    with open('config.bin', 'rb') as f:
+        data = f.read()
+    return ''
+
+
+HOST = get_address()
 PORT = 3386
 
 

@@ -12,9 +12,6 @@ colors = [
     (180, 34, 122),
 ]
 
-HOST = 'localhost'
-PORT = 3386
-
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 GRAY = (125, 125, 125)
@@ -191,6 +188,8 @@ def game_loop(_server, is_starting):
     screen = pygame.display.set_mode(size)
 
     pygame.display.set_caption("Coop-Tetris")
+    pygame.mixer.music.load('assets/TetrisTheme-1.mp3')
+    pygame.mixer.music.play(-1)
 
     done = False
     your_turn = is_starting
@@ -214,9 +213,6 @@ def game_loop(_server, is_starting):
                         print('Waiting for teammate to make a move')
                         waiting_flag = True
                     pass
-                except ConnectionAbortedError:
-                    game.server.close()
-                    game.server.connect((HOST, PORT))
                 else:
                     teammate_move_decoded = json.loads(teammate_move_raw.decode('utf-8'))
                     new_field = teammate_move_decoded['field']
